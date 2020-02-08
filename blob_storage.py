@@ -17,7 +17,7 @@ class FileName:
 
 
 class LocalFile(FileName):
-    local_storge_path = "/Users/dharmveer.baloda/workspace/az-transcoding-poc/downloads"
+    local_storge_path = "/Users/dharmveer.baloda/workspace/az-transcoding-poc/az-storage-blob/downloads"
     def __init__(self, filename):
         super().__init__(filename)
         self.parse_filename()
@@ -47,30 +47,20 @@ class LocalFile(FileName):
 #         self.container_name = container_name
 #         self.blob_name = blob_name
 
-
-class BlobStorage:
+class AzAuth:
     URL = "https://{storage_account_name}.blob.core.windows.net/"
+    def __init__(self, storage_account_name, access_key):
+        self.storage_account_name = storage_account_name
+        self.access_key = access_key
 
     @property
     def resource_url(self):
         return self.URL.format(storage_account_name=self.storage_account_name)
 
-    def __init__(self, storage_account_name, access_key, container_name=None, blob_name=None):
-        self.access_key = access_key
-
-        self.storage_account_name = storage_account_name
-        self.container_name = container_name
-        self.blob_name = blob_name
-
+class AzStorage(AzAuth):
+    def __init__(self, storage_account_name, access_key):
+        super().__init__(storage_account_name, access_key)
         self._blob_service_client = None
-        self._container_client = None
-        self._blob_client = None
-
-        self.properties = {}
-
-        self.blob_service_client()
-        self.blob_client()
-        self.blob_properties()
 
     def blob_service_client(self):
         if not self._blob_service_client:
@@ -80,13 +70,34 @@ class BlobStorage:
             )
         return self._blob_service_client
 
+class AzBlobStorageContainer(AzStorage):
+    def __init__(self, storage_account_name, access_key, container_name):
+        super().__init__(storage_account_name, access_key)
+        self.container_name = container_name
+
+    def blob_container_client(self):
+        blob_service_client= self.blob_service_client()
+        return blob_service_client.get_container_client(
+            self.container_name
+        )
+
+class AzBlobStorage(AzBlobStorageContainer):
+    def __init__(self, storage_account_name, access_key, container_name=None, blob_name=None):
+        super().__init__(storage_account_name, access_key, container_name)
+
+        self.blob_name = blob_name
+        self._blob_client = None
+        self.properties = {}
+        self.blob_properties()
+
     def blob_client(self):
-        try:
-            self._blob_client = self._blob_service_client.get_blob_client(
-                self.container_name, self.blob_name
-            )
-        except Exception as exception:
-            raise exception
+        if not self._blob_client:
+            try:
+                self._blob_client = self.blob_service_client().get_blob_client(
+                    self.container_name, self.blob_name
+                )
+            except Exception as exception:
+                raise exception
         return self._blob_client
 
     def blob_properties(self):
@@ -132,9 +143,10 @@ class BlobStorage:
     def upload(self, filename):
         local_file=self.to_local_file(filename=filename)
         try:
+            print(local_file.absolute_path)
             blob_client = self.blob_client()
             with open(local_file.absolute_path, "rb") as data:
-                blob_client.upload_blob(data)
+                blob_client.upload_blob(data, overwrite=True)
             self.blob_properties()
         except ResourceExistsError as identifier:
             raise identifier
